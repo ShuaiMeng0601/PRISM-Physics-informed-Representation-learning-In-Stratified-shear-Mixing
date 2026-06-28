@@ -5,7 +5,7 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 
 from dataset import KHHolmboeDataset
 from models import SharedEncoder, TinyUNet
@@ -169,6 +169,13 @@ def parse_args():
     parser.add_argument("--epsilon_input_mask_prob", type=float, default=0.5)
     parser.add_argument("--eval_force_mask_epsilon", action="store_true")
     parser.add_argument("--mask_prob", type=float, default=0.15)
+    parser.add_argument("--train_fraction", type=float, default=1.0, help="Fraction of the train split to use after random downsampling.")
+    parser.add_argument("--train_max_samples", type=int, default=None, help="Optional hard cap on the number of train samples.")
+    parser.add_argument("--downsample_seed", type=int, default=0, help="Seed used for train split downsampling.")
+    parser.add_argument("--input_noise_std", type=float, default=0.0, help="Train-time Gaussian noise std added to selected input variables.")
+    parser.add_argument("--noise_variables", default="all", help="Comma-separated variables to perturb, or 'all'. Noise is train-only.")
+    parser.add_argument("--seed", type=int, default=None, help="Optional seed for model init, shuffling, masks, and train-time noise.")
+    parser.add_argument("--noise_seed", type=int, default=None, help="Deprecated alias for --seed when --seed is not set.")
     parser.add_argument("--n_heads", type=int, default=5)
     parser.add_argument("--dropout", type=float, default=0.2)
     parser.add_argument("--use_epsilon_mask_channel", action="store_true")
@@ -188,8 +195,10 @@ def default_label_csv(args):
     for candidate in [
         Path(__file__).with_name("RM_summary_table.csv"),
         Path(__file__).resolve().parent.parent / "RM_summary_table.csv",
+        Path(__file__).resolve().parent.parent / "data" / "RM_summary_table.csv",
         Path(__file__).with_name("test_RM_summary_table.csv"),
         Path(__file__).resolve().parent.parent / "test_data" / "test_RM_summary_table.csv",
+        Path(__file__).resolve().parent.parent / "data" / "test_RM_summary_table.csv",
     ]:
         if candidate.exists():
             return str(candidate)
@@ -212,15 +221,96 @@ def collate_training_batch(items):
     return batch
 
 
-def make_loader(h5_path, split, label_csv, batch_size, shuffle, input_variables=None):
+def unwrap_dataset(dataset):
+    while isinstance(dataset, Subset):
+        dataset = dataset.dataset
+    return dataset
+
+
+def close_loader_dataset(loader):
+    dataset = unwrap_dataset(loader.dataset)
+    if hasattr(dataset, "close"):
+        dataset.close()
+
+
+def make_downsampled_train_dataset(dataset, train_fraction=1.0, train_max_samples=None, seed=0):
+    n_samples = len(dataset)
+    if not 0 < train_fraction <= 1:
+        raise ValueError(f"--train_fraction must be in (0, 1], got {train_fraction}")
+
+    target_count = max(1, int(round(n_samples * train_fraction)))
+    if train_max_samples is not None:
+        target_count = min(target_count, max(1, train_max_samples))
+
+    if target_count >= n_samples:
+        return dataset, n_samples
+
+    generator = torch.Generator().manual_seed(seed)
+    indices = torch.randperm(n_samples, generator=generator)[:target_count].tolist()
+    indices.sort()
+    return Subset(dataset, indices), target_count
+
+
+def resolve_noise_indices(input_variables, noise_variables):
+    if noise_variables is None:
+        return []
+
+    raw = noise_variables.strip()
+    if raw == "" or raw.lower() in {"none", "off", "0"}:
+        return []
+    if raw.lower() in {"all", "*"}:
+        return list(range(len(input_variables)))
+
+    requested = [item.strip() for item in raw.split(",") if item.strip()]
+    missing = [name for name in requested if name not in input_variables]
+    if missing:
+        raise ValueError(f"--noise_variables contains names not in input variables: {missing}")
+    return [input_variables.index(name) for name in requested]
+
+
+def apply_train_input_noise(x, variable_mask, args):
+    if args.input_noise_std <= 0 or not args.noise_indices:
+        return x
+
+    noisy = x.clone()
+    for channel_index in args.noise_indices:
+        sample_mask = variable_mask[:, channel_index].view(-1, 1, 1)
+        noise = torch.randn_like(noisy[:, channel_index]) * args.input_noise_std
+        noisy[:, channel_index] = torch.where(
+            sample_mask,
+            noisy[:, channel_index] + noise,
+            noisy[:, channel_index],
+        )
+    return noisy
+
+
+def make_loader(
+    h5_path,
+    split,
+    label_csv,
+    batch_size,
+    shuffle,
+    input_variables=None,
+    train_fraction=1.0,
+    train_max_samples=None,
+    downsample_seed=0,
+):
     dataset = KHHolmboeDataset(h5_path, split=split, label_csv=label_csv, input_variables=input_variables)
+    reported_length = len(dataset)
+    if split == "train":
+        dataset, reported_length = make_downsampled_train_dataset(
+            dataset,
+            train_fraction=train_fraction,
+            train_max_samples=train_max_samples,
+            seed=downsample_seed,
+        )
     return DataLoader(
         dataset,
         batch_size=batch_size,
         shuffle=shuffle,
         num_workers=0,
         collate_fn=collate_training_batch,
-    )
+    ), reported_length
 
 
 def run_one_epoch(model, loader, optimizer, device, args):
@@ -246,18 +336,19 @@ def run_one_epoch(model, loader, optimizer, device, args):
     n_batches = 0
 
     for batch in loader:
-        x = batch["x"].to(device)
+        clean_x = batch["x"].to(device)
         theta = batch["theta"].to(device)
         condition = batch["condition"].to(device)
         ratio = batch["ratio"].to(device)
         has_ratio = batch["has_ratio"].to(device)
         variable_mask = batch["variable_mask"].to(device)
-        log_epsilon = x[:, model.epsilon_index:model.epsilon_index + 1]
+        log_epsilon = clean_x[:, model.epsilon_index:model.epsilon_index + 1]
+        model_x = apply_train_input_noise(clean_x, variable_mask, args) if is_train else clean_x
 
         if is_train:
             optimizer.zero_grad()
 
-        out = model(x, variable_mask=variable_mask, force_mask_epsilon=force_mask)
+        out = model(model_x, variable_mask=variable_mask, force_mask_epsilon=force_mask)
         preds = out["preds"]
         feature = out["feature"]
         epsilon_available = out["epsilon_available"]
@@ -395,16 +486,37 @@ def main():
     Path(args.save).parent.mkdir(parents=True, exist_ok=True)
     metrics_csv, metric_fields = init_metrics_csv(args.metrics_csv)
 
-    train_loader = make_loader(args.h5, "train", args.label_csv, args.batch_size, True, args.input_variables)
-    val_loader = make_loader(args.h5, "val", args.label_csv, args.batch_size, False, args.input_variables)
-    input_variables = train_loader.dataset.input_variables
-    img_size = tuple(train_loader.dataset.x_data.shape[-2:])
+    run_seed = args.seed if args.seed is not None else args.noise_seed
+    if run_seed is not None:
+        torch.manual_seed(run_seed)
+
+    train_loader, train_sample_count = make_loader(
+        args.h5,
+        "train",
+        args.label_csv,
+        args.batch_size,
+        True,
+        args.input_variables,
+        train_fraction=args.train_fraction,
+        train_max_samples=args.train_max_samples,
+        downsample_seed=args.downsample_seed,
+    )
+    val_loader, val_sample_count = make_loader(args.h5, "val", args.label_csv, args.batch_size, False, args.input_variables)
+    train_dataset = unwrap_dataset(train_loader.dataset)
+    input_variables = train_dataset.input_variables
+    img_size = tuple(train_dataset.x_data.shape[-2:])
     epsilon_index = find_epsilon_index(input_variables)
+    args.noise_indices = resolve_noise_indices(input_variables, args.noise_variables)
+    noise_names = [input_variables[index] for index in args.noise_indices]
 
     print(f"Using label CSV: {args.label_csv}", flush=True)
     print(f"Using input variables: {input_variables}", flush=True)
     print(f"Using epsilon index: {epsilon_index}", flush=True)
     print(f"Using image size: {img_size}", flush=True)
+    print(f"Using train samples: {train_sample_count}", flush=True)
+    print(f"Using val samples: {val_sample_count}", flush=True)
+    print(f"Using train input noise std: {args.input_noise_std}", flush=True)
+    print(f"Using noise variables: {noise_names}", flush=True)
 
     model = MultiHeadEpsilonFlowModel(
         n_heads=args.n_heads,
@@ -457,8 +569,8 @@ def main():
         append_metrics_row(metrics_csv, metric_fields, row)
         plot_loss_curves(metrics_csv, args.loss_plot)
 
-    train_loader.dataset.close()
-    val_loader.dataset.close()
+    close_loader_dataset(train_loader)
+    close_loader_dataset(val_loader)
 
 
 if __name__ == "__main__":

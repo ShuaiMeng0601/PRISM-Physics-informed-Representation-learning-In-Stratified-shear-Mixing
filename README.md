@@ -17,6 +17,7 @@ checkpoints, logs, and exploratory result folders out of version control.
 - `src/inspect_multihead_epsilon_flow.py`: visualize epsilon-flow reconstructions.
 - `src/inspect_epsilon_flow_cross_attention.py`: visualize cross-variable attention.
 - `src/visualize_flow_inputs.py`: inspect/visualize flow inputs.
+- `src/run_downsample_noise_experiments.py`: sweep train-set downsampling and train-time input noise, then summarize test performance.
 
 ## Project Layout
 
@@ -106,6 +107,32 @@ python src/test_multihead_epsilon_flow.py \
   --force_mask_epsilon \
   --output_dir outputs/epsilon_flow_test_results_external
 ```
+
+## Downsample + Noise Experiments
+
+To measure how training-set size and train-time input noise affect final test
+performance, run a sweep:
+
+```bash
+python src/run_downsample_noise_experiments.py \
+  --main_h5 data/kh_holmboe_dataset_keep_epsilon.h5 \
+  --main_label_csv data/RM_summary_table.csv \
+  --test_h5 data/test_dataset_keep_epsilon.h5 \
+  --test_label_csv data/test_RM_summary_table.csv \
+  --fractions 1.0,0.5,0.25,0.1 \
+  --noise_stds 0.0,0.01,0.05,0.1 \
+  --epochs 60 \
+  --batch_size 4 \
+  --test_batch_size 16 \
+  --output_root outputs/downsample_noise_sweep \
+  --checkpoint_root checkpoints/downsample_noise_sweep
+```
+
+The sweep writes per-run logs/results under `outputs/downsample_noise_sweep/`
+and a combined summary table at `outputs/downsample_noise_sweep/summary.csv`.
+
+For the full original workflow, add `--run_finetune` so each perturbed main
+training run is followed by external fine-tuning before test.
 
 ## Visualize
 
