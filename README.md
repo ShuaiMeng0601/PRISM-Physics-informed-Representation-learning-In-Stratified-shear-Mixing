@@ -18,6 +18,7 @@ checkpoints, logs, and exploratory result folders out of version control.
 - `src/inspect_epsilon_flow_cross_attention.py`: visualize cross-variable attention.
 - `src/visualize_flow_inputs.py`: inspect/visualize flow inputs.
 - `src/run_downsample_noise_experiments.py`: sweep test-time input noise and spatial downsampling for a trained checkpoint.
+- `scripts/setup_colab_drive_links.py`: create Colab symlinks to `ML_turbulence/experiment/` in Google Drive.
 
 ## Project Layout
 
@@ -29,6 +30,7 @@ checkpoints, logs, and exploratory result folders out of version control.
 ├── checkpoints/
 ├── outputs/
 ├── docs/
+├── scripts/
 ├── requirements.txt
 ├── .gitignore
 └── README.md
@@ -44,16 +46,36 @@ pip install -r requirements.txt
 
 ## Data
 
-Put local copies or symlinks in `data/`:
+Large data and checkpoint files are intentionally not stored in git. In Google
+Drive, this project expects your files under:
+
+```text
+/content/drive/MyDrive/ML_turbulence/experiment/
+```
+
+After mounting Google Drive in Colab, create repo-local symlinks with:
+
+```bash
+python scripts/setup_colab_drive_links.py
+```
+
+This links the Drive files into `data/` and `checkpoints/`:
 
 ```text
 data/kh_holmboe_dataset_keep_epsilon.h5
 data/test_dataset_keep_epsilon.h5
 data/RM_summary_table.csv
 data/test_RM_summary_table.csv
+checkpoints/multihead_epsilon_flow_model.pt
+checkpoints/multihead_epsilon_flow_finetuned_external.pt
 ```
 
-The HDF5 files are intentionally ignored by git.
+If your Drive folder is mounted somewhere else, pass it explicitly:
+
+```bash
+python scripts/setup_colab_drive_links.py \
+  --experiment_dir "/content/drive/MyDrive/ML_turbulence/experiment"
+```
 
 ## Main Training
 

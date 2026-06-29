@@ -2,6 +2,18 @@
 
 Do not commit HDF5 datasets to git.
 
+In Colab, mount Google Drive and create these links with:
+
+```bash
+python scripts/setup_colab_drive_links.py
+```
+
+The default Drive source is:
+
+```text
+/content/drive/MyDrive/ML_turbulence/experiment/
+```
+
 Expected local files:
 
 ```text

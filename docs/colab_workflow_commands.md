@@ -3,6 +3,24 @@
 These are the final backbone commands extracted from `Train_ML.ipynb`, rewritten
 with repo-relative paths.
 
+## Colab Setup
+
+Clone the repo, mount Google Drive, then link the data/checkpoints from
+`ML_turbulence/experiment`.
+
+```python
+from google.colab import drive
+drive.mount("/content/drive")
+```
+
+```bash
+%cd /content/PRISM-Physics-informed-Representation-learning-In-Stratified-shear-Mixing
+!python scripts/setup_colab_drive_links.py
+!ls -lhL data/test_dataset_keep_epsilon.h5
+!ls -lhL data/test_RM_summary_table.csv
+!ls -lhL checkpoints/multihead_epsilon_flow_finetuned_external.pt
+```
+
 ## Main Training
 
 ```bash
