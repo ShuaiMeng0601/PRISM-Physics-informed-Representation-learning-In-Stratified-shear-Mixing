@@ -65,15 +65,13 @@ def write_summary(summary_csv, rows):
         "run_id",
         "status",
         "failed_stage",
-        "train_fraction",
-        "train_max_samples",
+        "checkpoint",
+        "split",
         "input_noise_std",
         "noise_variables",
-        "seed",
-        "used_finetune",
-        "finetune_train_fraction",
-        "finetune_input_noise_std",
-        "checkpoint",
+        "spatial_downsample_factor",
+        "perturb_seed",
+        "force_mask_epsilon",
         "test_output_dir",
         "n_labeled",
         "mae",
@@ -89,118 +87,73 @@ def write_summary(summary_csv, rows):
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Sweep train-set downsampling and train-time input noise, then summarize test metrics."
+        description="Sweep test-time input noise and spatial downsampling for a trained checkpoint."
     )
-    parser.add_argument("--main_h5", default="data/kh_holmboe_dataset_keep_epsilon.h5")
-    parser.add_argument("--main_label_csv", default="data/RM_summary_table.csv")
-    parser.add_argument("--test_h5", default="data/test_dataset_keep_epsilon.h5")
-    parser.add_argument("--test_label_csv", default="data/test_RM_summary_table.csv")
+    parser.add_argument("--h5", default="data/test_dataset_keep_epsilon.h5")
+    parser.add_argument("--label_csv", default="data/test_RM_summary_table.csv")
+    parser.add_argument("--checkpoint", required=True)
+    parser.add_argument("--split", default="test")
     parser.add_argument("--input_variables", default="buoyancy,reduced_shear,log_epsilon")
-    parser.add_argument("--fractions", default="1.0,0.5,0.25,0.1")
     parser.add_argument("--noise_stds", default="0.0,0.01,0.05,0.1")
+    parser.add_argument("--downsample_factors", default="1.0,2.0,4.0,8.0")
     parser.add_argument("--noise_variables", default="all")
-    parser.add_argument("--train_max_samples", type=int, default=None)
-    parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--epochs", type=int, default=60)
-    parser.add_argument("--batch_size", type=int, default=4)
-    parser.add_argument("--lr", type=float, default=1e-4)
-    parser.add_argument("--weight_decay", type=float, default=1e-4)
-    parser.add_argument("--lambda_recon", type=float, default=1.0)
-    parser.add_argument("--lambda_epsilon", type=float, default=1.0)
-    parser.add_argument("--epsilon_input_mask_prob", type=float, default=0.5)
+    parser.add_argument("--perturb_seed", type=int, default=0)
+    parser.add_argument("--batch_size", type=int, default=16)
+    parser.add_argument("--start_index", type=int, default=0)
+    parser.add_argument("--end_index", type=int, default=None)
+    parser.add_argument("--n_heads", type=int, default=5)
+    parser.add_argument("--dropout", type=float, default=0.2)
     parser.add_argument("--mask_prob", type=float, default=0.15)
-    parser.add_argument("--test_batch_size", type=int, default=16)
+    parser.add_argument("--epsilon_input_mask_prob", type=float, default=0.5)
     parser.add_argument("--device", default=None)
-    parser.add_argument("--output_root", default="outputs/downsample_noise_sweep")
-    parser.add_argument("--checkpoint_root", default="checkpoints/downsample_noise_sweep")
+    parser.add_argument("--output_root", default="outputs/test_input_robustness_sweep")
     parser.add_argument("--summary_csv", default=None)
-    parser.add_argument("--run_finetune", action="store_true")
-    parser.add_argument("--finetune_epochs", type=int, default=30)
-    parser.add_argument("--finetune_lr", type=float, default=2e-5)
-    parser.add_argument("--finetune_lambda_recon", type=float, default=0.2)
-    parser.add_argument("--finetune_train_fraction", type=float, default=1.0)
-    parser.add_argument("--finetune_input_noise_std", type=float, default=0.0)
-    parser.add_argument("--perturb_finetune_like_main", action="store_true")
     parser.add_argument("--skip_existing", action="store_true")
     parser.add_argument("--continue_on_error", action="store_true")
     parser.add_argument("--dry_run", action="store_true")
-    parser.add_argument("--no_force_mask_epsilon", dest="force_mask_epsilon", action="store_false")
-    parser.set_defaults(force_mask_epsilon=True)
+    parser.add_argument("--force_mask_epsilon", action="store_true")
     return parser.parse_args()
 
 
-def build_train_command(args, checkpoint_path, metrics_csv, loss_plot, train_fraction, noise_std, init_checkpoint=None):
-    cmd = [
-        sys.executable,
-        "src/train_multihead_epsilon_flow.py",
-        "--h5",
-        args.main_h5 if init_checkpoint is None else args.test_h5,
-        "--input_variables",
-        args.input_variables,
-        "--epochs",
-        str(args.epochs if init_checkpoint is None else args.finetune_epochs),
-        "--batch_size",
-        str(args.batch_size),
-        "--lr",
-        str(args.lr if init_checkpoint is None else args.finetune_lr),
-        "--weight_decay",
-        str(args.weight_decay),
-        "--lambda_recon",
-        str(args.lambda_recon if init_checkpoint is None else args.finetune_lambda_recon),
-        "--lambda_epsilon",
-        str(args.lambda_epsilon),
-        "--epsilon_input_mask_prob",
-        str(args.epsilon_input_mask_prob),
-        "--eval_force_mask_epsilon",
-        "--mask_prob",
-        str(args.mask_prob),
-        "--train_fraction",
-        str(train_fraction),
-        "--downsample_seed",
-        str(args.seed),
-        "--input_noise_std",
-        str(noise_std),
-        "--noise_variables",
-        args.noise_variables,
-        "--seed",
-        str(args.seed),
-        "--save",
-        str(checkpoint_path),
-        "--metrics_csv",
-        str(metrics_csv),
-        "--loss_plot",
-        str(loss_plot),
-    ]
-    if args.train_max_samples is not None and init_checkpoint is None:
-        cmd.extend(["--train_max_samples", str(args.train_max_samples)])
-    if init_checkpoint is not None:
-        cmd.extend(["--init_checkpoint", str(init_checkpoint)])
-        optional_path_arg(cmd, "--label_csv", args.test_label_csv)
-    else:
-        optional_path_arg(cmd, "--label_csv", args.main_label_csv)
-    optional_path_arg(cmd, "--device", args.device)
-    return cmd
-
-
-def build_test_command(args, checkpoint_path, output_dir):
+def build_test_command(args, noise_std, downsample_factor, output_dir):
     cmd = [
         sys.executable,
         "src/test_multihead_epsilon_flow.py",
         "--h5",
-        args.test_h5,
+        args.h5,
         "--label_csv",
-        args.test_label_csv,
+        args.label_csv,
         "--checkpoint",
-        str(checkpoint_path),
+        args.checkpoint,
         "--split",
-        "test",
+        args.split,
         "--batch_size",
-        str(args.test_batch_size),
+        str(args.batch_size),
+        "--start_index",
+        str(args.start_index),
         "--input_variables",
         args.input_variables,
+        "--n_heads",
+        str(args.n_heads),
+        "--dropout",
+        str(args.dropout),
+        "--mask_prob",
+        str(args.mask_prob),
+        "--epsilon_input_mask_prob",
+        str(args.epsilon_input_mask_prob),
+        "--input_noise_std",
+        str(noise_std),
+        "--noise_variables",
+        args.noise_variables,
+        "--spatial_downsample_factor",
+        str(downsample_factor),
+        "--perturb_seed",
+        str(args.perturb_seed),
         "--output_dir",
         str(output_dir),
     ]
+    if args.end_index is not None:
+        cmd.extend(["--end_index", str(args.end_index)])
     if args.force_mask_epsilon:
         cmd.append("--force_mask_epsilon")
     optional_path_arg(cmd, "--device", args.device)
@@ -211,105 +164,47 @@ def main():
     args = parse_args()
     repo_root = Path(__file__).resolve().parent.parent
     output_root = Path(args.output_root)
-    checkpoint_root = Path(args.checkpoint_root)
     summary_csv = Path(args.summary_csv) if args.summary_csv else output_root / "summary.csv"
 
     rows = []
-    fractions = parse_float_list(args.fractions)
     noise_stds = parse_float_list(args.noise_stds)
+    downsample_factors = parse_float_list(args.downsample_factors)
 
-    for fraction in fractions:
+    for downsample_factor in downsample_factors:
         for noise_std in noise_stds:
-            run_id = f"frac_{slug_float(fraction)}__noise_{slug_float(noise_std)}__seed_{args.seed}"
-            run_output = output_root / run_id
-            run_checkpoints = checkpoint_root / run_id
-            train_checkpoint = run_checkpoints / "multihead_epsilon_flow_model.pt"
-            train_metrics = run_output / "train_loss_history.csv"
-            train_loss_plot = run_output / "train_loss_curves.png"
-            train_log = run_output / "train.log"
-            test_checkpoint = train_checkpoint
-            used_finetune = False
+            run_id = (
+                f"downsample_{slug_float(downsample_factor)}"
+                f"__noise_{slug_float(noise_std)}"
+                f"__seed_{args.perturb_seed}"
+            )
+            output_dir = output_root / run_id
+            log_path = output_dir / "test.log"
+            metrics_path = output_dir / "epsilon_flow_test_metrics.json"
             status = "ok"
             failed_stage = ""
-            summary_finetune_fraction = ""
-            summary_finetune_noise = ""
 
-            metrics_path = run_output / "test" / "epsilon_flow_test_metrics.json"
             if args.skip_existing and metrics_path.exists():
                 print(f"Skipping existing run: {run_id}", flush=True)
-                used_finetune = args.run_finetune
-                if args.run_finetune:
-                    summary_finetune_fraction = fraction if args.perturb_finetune_like_main else args.finetune_train_fraction
-                    summary_finetune_noise = noise_std if args.perturb_finetune_like_main else args.finetune_input_noise_std
-                    test_checkpoint = run_checkpoints / "multihead_epsilon_flow_finetuned_external.pt"
             else:
-                train_cmd = build_train_command(
-                    args,
-                    train_checkpoint,
-                    train_metrics,
-                    train_loss_plot,
-                    fraction,
-                    noise_std,
-                )
-                return_code = run_command(train_cmd, repo_root, train_log, dry_run=args.dry_run)
+                test_cmd = build_test_command(args, noise_std, downsample_factor, output_dir)
+                return_code = run_command(test_cmd, repo_root, log_path, dry_run=args.dry_run)
                 if return_code != 0:
                     status = "failed"
-                    failed_stage = "train"
+                    failed_stage = "test"
 
-                if status == "ok" and args.run_finetune:
-                    used_finetune = True
-                    finetune_checkpoint = run_checkpoints / "multihead_epsilon_flow_finetuned_external.pt"
-                    finetune_metrics = run_output / "finetune_loss_history.csv"
-                    finetune_loss_plot = run_output / "finetune_loss_curves.png"
-                    finetune_log = run_output / "finetune.log"
-                    finetune_fraction = fraction if args.perturb_finetune_like_main else args.finetune_train_fraction
-                    finetune_noise = noise_std if args.perturb_finetune_like_main else args.finetune_input_noise_std
-                    summary_finetune_fraction = finetune_fraction
-                    summary_finetune_noise = finetune_noise
-                    finetune_cmd = build_train_command(
-                        args,
-                        finetune_checkpoint,
-                        finetune_metrics,
-                        finetune_loss_plot,
-                        finetune_fraction,
-                        finetune_noise,
-                        init_checkpoint=train_checkpoint,
-                    )
-                    return_code = run_command(finetune_cmd, repo_root, finetune_log, dry_run=args.dry_run)
-                    if return_code != 0:
-                        status = "failed"
-                        failed_stage = "finetune"
-                    else:
-                        test_checkpoint = finetune_checkpoint
-
-                if status == "ok":
-                    test_output = run_output / "test"
-                    test_log = run_output / "test.log"
-                    test_cmd = build_test_command(args, test_checkpoint, test_output)
-                    return_code = run_command(test_cmd, repo_root, test_log, dry_run=args.dry_run)
-                    if return_code != 0:
-                        status = "failed"
-                        failed_stage = "test"
-
-            if not args.dry_run:
-                metrics = load_metrics(metrics_path)
-            else:
-                metrics = {}
-
+            metrics = {} if args.dry_run else load_metrics(metrics_path)
             rows.append({
                 "run_id": run_id,
                 "status": status,
                 "failed_stage": failed_stage,
-                "train_fraction": fraction,
-                "train_max_samples": args.train_max_samples,
+                "checkpoint": args.checkpoint,
+                "split": args.split,
                 "input_noise_std": noise_std,
                 "noise_variables": args.noise_variables,
-                "seed": args.seed,
-                "used_finetune": used_finetune,
-                "finetune_train_fraction": summary_finetune_fraction,
-                "finetune_input_noise_std": summary_finetune_noise,
-                "checkpoint": test_checkpoint,
-                "test_output_dir": run_output / "test",
+                "spatial_downsample_factor": downsample_factor,
+                "perturb_seed": args.perturb_seed,
+                "force_mask_epsilon": args.force_mask_epsilon,
+                "test_output_dir": output_dir,
                 "n_labeled": metrics.get("n_labeled"),
                 "mae": metrics.get("mae"),
                 "rmse": metrics.get("rmse"),
@@ -319,9 +214,9 @@ def main():
             write_summary(summary_csv, rows)
 
             if status != "ok" and not args.continue_on_error:
-                raise SystemExit(f"Run {run_id} failed during {failed_stage}. See logs in {run_output}.")
+                raise SystemExit(f"Run {run_id} failed during {failed_stage}. See logs in {output_dir}.")
 
-    print(f"\nWrote sweep summary to {summary_csv}", flush=True)
+    print(f"\nWrote test-time robustness summary to {summary_csv}", flush=True)
 
 
 if __name__ == "__main__":

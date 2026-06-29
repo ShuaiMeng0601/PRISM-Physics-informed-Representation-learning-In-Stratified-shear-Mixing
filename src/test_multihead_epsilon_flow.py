@@ -6,6 +6,7 @@ from collections import defaultdict
 from pathlib import Path
 
 import torch
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 from dataset import KHHolmboeDataset
@@ -31,6 +32,10 @@ def parse_args():
     parser.add_argument("--epsilon_input_mask_prob", type=float, default=0.5)
     parser.add_argument("--force_mask_epsilon", action="store_true")
     parser.add_argument("--input_variables", default=None)
+    parser.add_argument("--input_noise_std", type=float, default=0.0, help="Test-time Gaussian noise std added to selected input variables.")
+    parser.add_argument("--noise_variables", default="all", help="Comma-separated variables to perturb at test time, or 'all'.")
+    parser.add_argument("--spatial_downsample_factor", type=float, default=1.0, help="Downsample test input fields by this factor, then upsample back before inference.")
+    parser.add_argument("--perturb_seed", type=int, default=None, help="Optional seed for deterministic test-time perturbations.")
     parser.add_argument("--output_dir", default="epsilon_flow_test_results")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     return parser.parse_args()
@@ -60,6 +65,55 @@ def collate_batch(items):
         "metadata": [item["sample"]["metadata"] for item in items],
         "dataset_index": torch.tensor([item["dataset_index"] for item in items], dtype=torch.long),
     }
+
+
+def resolve_variable_indices(input_variables, variable_names):
+    if variable_names is None:
+        return []
+
+    raw = variable_names.strip()
+    if raw == "" or raw.lower() in {"none", "off", "0"}:
+        return []
+    if raw.lower() in {"all", "*"}:
+        return list(range(len(input_variables)))
+
+    requested = [item.strip() for item in raw.split(",") if item.strip()]
+    missing = [name for name in requested if name not in input_variables]
+    if missing:
+        raise ValueError(f"--noise_variables contains names not in input variables: {missing}")
+    return [input_variables.index(name) for name in requested]
+
+
+def spatial_downsample_upsample(x, factor):
+    if factor <= 0:
+        raise ValueError(f"--spatial_downsample_factor must be positive, got {factor}")
+    if factor <= 1:
+        return x
+
+    batch, channels, height, width = x.shape
+    down_h = max(1, int(round(height / factor)))
+    down_w = max(1, int(round(width / factor)))
+    flat = x.reshape(batch * channels, 1, height, width)
+    low_res = F.interpolate(flat, size=(down_h, down_w), mode="bilinear", align_corners=False)
+    restored = F.interpolate(low_res, size=(height, width), mode="bilinear", align_corners=False)
+    return restored.reshape(batch, channels, height, width)
+
+
+def apply_test_input_perturbation(x, variable_mask, args):
+    perturbed = spatial_downsample_upsample(x, args.spatial_downsample_factor)
+
+    if args.input_noise_std > 0 and args.noise_indices:
+        perturbed = perturbed.clone()
+        for channel_index in args.noise_indices:
+            sample_mask = variable_mask[:, channel_index].view(-1, 1, 1)
+            noise = torch.randn_like(perturbed[:, channel_index]) * args.input_noise_std
+            perturbed[:, channel_index] = torch.where(
+                sample_mask,
+                perturbed[:, channel_index] + noise,
+                perturbed[:, channel_index],
+            )
+
+    return perturbed
 
 
 def write_rows(path, fieldnames, rows):
@@ -175,14 +229,23 @@ def plot_results(sample_rows, case_rows, output_dir):
 @torch.no_grad()
 def run_test(args):
     args.label_csv = default_label_csv(args)
+    if args.perturb_seed is not None:
+        torch.manual_seed(args.perturb_seed)
+
     device = torch.device(args.device)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     dataset = KHHolmboeDataset(args.h5, split=args.split, label_csv=args.label_csv, input_variables=args.input_variables)
     epsilon_index = find_epsilon_index(dataset.input_variables)
+    args.noise_indices = resolve_variable_indices(dataset.input_variables, args.noise_variables)
+    noise_names = [dataset.input_variables[index] for index in args.noise_indices]
     eval_dataset = IndexedRangeDataset(dataset, args.start_index, args.end_index)
     loader = DataLoader(eval_dataset, batch_size=args.batch_size, shuffle=False, num_workers=0, collate_fn=collate_batch)
+
+    print(f"Using test input noise std: {args.input_noise_std}", flush=True)
+    print(f"Using test noise variables: {noise_names}", flush=True)
+    print(f"Using test spatial downsample factor: {args.spatial_downsample_factor}", flush=True)
 
     model = MultiHeadEpsilonFlowModel(
         n_heads=args.n_heads,
@@ -202,7 +265,8 @@ def run_test(args):
         variable_mask = batch["variable_mask"].to(device)
         ratio = batch["ratio"].to(device)
         has_ratio = batch["has_ratio"].to(device)
-        out = model(x, variable_mask=variable_mask, force_mask_epsilon=args.force_mask_epsilon)
+        model_x = apply_test_input_perturbation(x, variable_mask, args)
+        out = model(model_x, variable_mask=variable_mask, force_mask_epsilon=args.force_mask_epsilon)
         preds = out["preds"]
         pred_mean = preds.mean(dim=1)
         pred_std = preds.std(dim=1, unbiased=False)
@@ -225,6 +289,9 @@ def run_test(args):
                 "pred_std": std_value,
                 "epsilon_available": bool(out["epsilon_available"][i].detach().cpu()),
                 "epsilon_masked_for_encoder": bool(out["epsilon_masked"][i].detach().cpu()),
+                "input_noise_std": args.input_noise_std,
+                "noise_variables": args.noise_variables,
+                "spatial_downsample_factor": args.spatial_downsample_factor,
                 "error": error,
                 "abs_error": abs(error) if error is not None else None,
             }
@@ -234,10 +301,17 @@ def run_test(args):
 
     case_rows = aggregate_by_case(rows)
     metrics = compute_metrics(rows)
+    metrics.update({
+        "input_noise_std": args.input_noise_std,
+        "noise_variables": args.noise_variables,
+        "spatial_downsample_factor": args.spatial_downsample_factor,
+        "perturb_seed": args.perturb_seed,
+    })
     sample_fields = [
         "dataset_index", "split", "case_id", "plane", "axis_index",
         "target_R_M", "has_label", "pred_mean", "pred_std",
         "epsilon_available", "epsilon_masked_for_encoder",
+        "input_noise_std", "noise_variables", "spatial_downsample_factor",
         "error", "abs_error",
     ] + [f"head_{idx}" for idx in range(args.n_heads)]
     case_fields = [

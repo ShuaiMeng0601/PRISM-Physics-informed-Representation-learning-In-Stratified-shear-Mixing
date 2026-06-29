@@ -64,11 +64,11 @@ src/visualize_flow_inputs.py
 These cover reconstruction/inference panels, log-epsilon inference, attention
 diagnostics, and flow-input sanity checks.
 
-## 7. Robustness Sweep
+## 7. Test-Time Robustness Sweep
 
-Use `src/run_downsample_noise_experiments.py` to test how final performance
-changes when the training split is downsampled and train-time Gaussian input
-noise is added. The runner writes per-run logs and a combined summary CSV with
-`mae`, `rmse`, `bias`, and `mse`.
+Use `src/run_downsample_noise_experiments.py` to test how a fixed trained
+checkpoint performs when test inputs are spatially downsampled and/or perturbed
+with Gaussian noise. The runner writes per-run logs and a combined summary CSV
+with `mae`, `rmse`, `bias`, and `mse`.
 
 See `docs/downsample_noise_experiments.md` for commands.

@@ -56,6 +56,22 @@ python src/test_multihead_epsilon_flow.py \
   --output_dir outputs/epsilon_flow_test_results_external
 ```
 
+## Test-Time Robustness Sweep
+
+This keeps the trained checkpoint fixed and perturbs only the test input.
+
+```bash
+python src/run_downsample_noise_experiments.py \
+  --h5 data/test_dataset_keep_epsilon.h5 \
+  --label_csv data/test_RM_summary_table.csv \
+  --checkpoint checkpoints/multihead_epsilon_flow_finetuned_external.pt \
+  --downsample_factors 1.0,2.0,4.0,8.0 \
+  --noise_stds 0.0,0.01,0.05,0.1 \
+  --batch_size 16 \
+  --force_mask_epsilon \
+  --output_root outputs/test_input_robustness_sweep
+```
+
 ## Inspection
 
 ```bash
