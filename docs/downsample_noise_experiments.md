@@ -73,13 +73,18 @@ python src/run_downsample_noise_experiments.py \
   --h5 data/test_dataset_keep_epsilon.h5 \
   --label_csv data/test_RM_summary_table.csv \
   --checkpoint checkpoints/multihead_epsilon_flow_finetuned_external.pt \
-  --downsample_factors 1.0,2.0,4.0,8.0 \
+  --downsample_factors 1.0,2.0,4.0,8.0,16.0,32.0 \
   --noise_stds 0.0,0.01,0.05,0.1 \
   --batch_size 16 \
   --force_mask_epsilon \
   --perturb_seed 0 \
+  --skip_existing \
   --output_root outputs/test_input_robustness_sweep
 ```
+
+With four noise levels and six downsample factors, the main sweep contains
+24 runs. If the original `1,2,4,8` sweep already exists, `--skip_existing`
+reuses those outputs and computes only the missing `16` and `32` cases.
 
 The summary is written to:
 

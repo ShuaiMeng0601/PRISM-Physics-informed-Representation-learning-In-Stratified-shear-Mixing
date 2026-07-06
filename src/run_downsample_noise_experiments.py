@@ -95,7 +95,7 @@ def parse_args():
     parser.add_argument("--split", default="test")
     parser.add_argument("--input_variables", default="buoyancy,reduced_shear,log_epsilon")
     parser.add_argument("--noise_stds", default="0.0,0.01,0.05,0.1")
-    parser.add_argument("--downsample_factors", default="1.0,2.0,4.0,8.0")
+    parser.add_argument("--downsample_factors", default="1.0,2.0,4.0,8.0,16.0,32.0")
     parser.add_argument("--noise_variables", default="all")
     parser.add_argument("--perturb_seed", type=int, default=0)
     parser.add_argument("--batch_size", type=int, default=16)
