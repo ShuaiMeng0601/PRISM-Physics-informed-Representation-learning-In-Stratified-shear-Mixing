@@ -112,7 +112,45 @@ RM prediction: (B,1)
 flow velocity/reconstruction: (B,1,491,200)
 ```
 
-## 7. Important notes
+## 7. Fine-tune from the pretrained SharedFNO checkpoint
+
+This mirrors the old fine-tune settings:
+
+```text
+epochs = 30
+heads_only_epochs = 5
+lr = 2e-5
+lambda_flow = 0.2
+batch_size = 4
+```
+
+Run after pretraining has produced `checkpoints/shared_fno_rm_flow_model.pt`:
+
+```bash
+python src/train_shared_fno_rm_flow.py \
+  --h5 data/test_dataset_keep_epsilon.h5 \
+  --label_csv data/test_RM_summary_table.csv \
+  --init_checkpoint checkpoints/shared_fno_rm_flow_model.pt \
+  --input_variables buoyancy,reduced_shear,log_epsilon \
+  --epochs 30 \
+  --heads_only_epochs 5 \
+  --batch_size 4 \
+  --lr 2e-5 \
+  --lambda_flow 0.2 \
+  --device cuda \
+  --save checkpoints/shared_fno_rm_flow_finetuned.pt \
+  --metrics_csv outputs/shared_fno_rm_flow_finetune_loss_history.csv \
+  --loss_plot outputs/shared_fno_rm_flow_finetune_loss_curves.png
+```
+
+To save directly to Google Drive, replace the output paths with absolute Drive
+paths, for example:
+
+```bash
+--save /content/drive/MyDrive/ML_turbulence/experiment/checkpoints/shared_fno_rm_flow_finetuned.pt
+```
+
+## 8. Important notes
 
 - The flow branch does not condition on `Pr`, `Ri`, `Re`, or `a`.
 - The flow branch only uses noisy buoyancy, flow time, and compact latent.
@@ -120,7 +158,7 @@ flow velocity/reconstruction: (B,1,491,200)
   variable dropout.
 - The main script is `src/train_shared_fno_rm_flow.py`.
 
-## 8. Visualize cross-attention and RM saliency
+## 9. Visualize cross-attention and RM saliency
 
 After training has produced `checkpoints/shared_fno_rm_flow_model.pt`, run:
 

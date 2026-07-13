@@ -125,6 +125,26 @@ python src/train_shared_fno_rm_flow.py \
   --loss_plot outputs/shared_fno_rm_flow_loss_curves.png
 ```
 
+Fine-tune from the pretrained SharedFNO checkpoint with the same schedule used
+by the earlier fine-tuning workflow:
+
+```bash
+python src/train_shared_fno_rm_flow.py \
+  --h5 data/test_dataset_keep_epsilon.h5 \
+  --label_csv data/test_RM_summary_table.csv \
+  --init_checkpoint checkpoints/shared_fno_rm_flow_model.pt \
+  --input_variables buoyancy,reduced_shear,log_epsilon \
+  --epochs 30 \
+  --heads_only_epochs 5 \
+  --batch_size 4 \
+  --lr 2e-5 \
+  --lambda_flow 0.2 \
+  --device cuda \
+  --save checkpoints/shared_fno_rm_flow_finetuned.pt \
+  --metrics_csv outputs/shared_fno_rm_flow_finetune_loss_history.csv \
+  --loss_plot outputs/shared_fno_rm_flow_finetune_loss_curves.png
+```
+
 See `docs/shared_fno_colab.md` and `docs/shared_fno_rm_flow_pipeline.md` for
 Colab instructions and the architecture diagram.
 
