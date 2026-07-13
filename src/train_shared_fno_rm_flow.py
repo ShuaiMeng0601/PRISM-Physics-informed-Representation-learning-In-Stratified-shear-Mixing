@@ -707,8 +707,6 @@ def init_metrics_csv(path):
         path.parent.mkdir(parents=True, exist_ok=True)
     fieldnames = [
         "epoch",
-        "stage",
-        "trainable_parameters",
         "train_total",
         "train_rm",
         "train_flow",
@@ -778,13 +776,6 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--h5", default=str(DEFAULT_H5))
     parser.add_argument("--label_csv", default=None)
-    parser.add_argument("--init_checkpoint", default=None)
-    parser.add_argument(
-        "--heads_only_epochs",
-        type=int,
-        default=0,
-        help="Fine-tune warmup epochs that update only the RM head, matching the old fine-tune workflow.",
-    )
     parser.add_argument("--input_variables", default=DEFAULT_VARIABLES)
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--batch_size", type=int, default=4)
@@ -837,35 +828,6 @@ def save_checkpoint(path, model, args, input_variables, img_size, best_val_rm, e
     )
 
 
-def checkpoint_state_dict(checkpoint):
-    if isinstance(checkpoint, dict) and "model_state" in checkpoint:
-        return checkpoint["model_state"]
-    return checkpoint
-
-
-def checkpoint_args(checkpoint):
-    if isinstance(checkpoint, dict):
-        return checkpoint.get("args", {})
-    return {}
-
-
-def model_arg(args, saved_args, name):
-    return saved_args.get(name, getattr(args, name))
-
-
-def set_heads_only(model, heads_only):
-    for parameter in model.parameters():
-        parameter.requires_grad = not heads_only
-
-    if heads_only:
-        for parameter in model.rm_head.parameters():
-            parameter.requires_grad = True
-
-
-def count_trainable_parameters(model):
-    return sum(parameter.numel() for parameter in model.parameters() if parameter.requires_grad)
-
-
 def main():
     args = parse_args()
     args.label_csv = default_label_csv(args.label_csv)
@@ -901,30 +863,20 @@ def main():
     print(f"Using input variables: {input_variables}", flush=True)
     print(f"Using image size: {img_size}", flush=True)
 
-    init_checkpoint = None
-    saved_model_args = {}
-    if args.init_checkpoint is not None:
-        init_checkpoint = torch.load(args.init_checkpoint, map_location=device)
-        saved_model_args = checkpoint_args(init_checkpoint)
-
     model = SharedFNOFlowModel(
         img_size=img_size,
-        patch_size=tuple(model_arg(args, saved_model_args, "patch_size")),
+        patch_size=args.patch_size,
         n_vars=len(input_variables),
-        dim=int(model_arg(args, saved_model_args, "dim")),
-        vit_depth=int(model_arg(args, saved_model_args, "vit_depth")),
-        heads=int(model_arg(args, saved_model_args, "heads")),
-        latent_channels=int(model_arg(args, saved_model_args, "latent_channels")),
-        fno_modes=tuple(model_arg(args, saved_model_args, "fno_modes")),
-        dropout=float(model_arg(args, saved_model_args, "dropout")),
-        rm_dropout=float(model_arg(args, saved_model_args, "rm_dropout")),
-        flow_base_channels=int(model_arg(args, saved_model_args, "flow_base_channels")),
+        dim=args.dim,
+        vit_depth=args.vit_depth,
+        heads=args.heads,
+        latent_channels=args.latent_channels,
+        fno_modes=args.fno_modes,
+        dropout=args.dropout,
+        rm_dropout=args.rm_dropout,
+        flow_base_channels=args.flow_base_channels,
     ).to(device)
     print(f"Compact latent feature per sample: {model.latent_shape}", flush=True)
-
-    if init_checkpoint is not None:
-        model.load_state_dict(checkpoint_state_dict(init_checkpoint))
-        print(f"Loaded initial checkpoint: {args.init_checkpoint}", flush=True)
 
     optimizer = torch.optim.AdamW(
         model.parameters(),
@@ -933,18 +885,7 @@ def main():
     )
 
     best_val_rm = float("inf")
-    current_heads_only = None
     for epoch in range(1, args.epochs + 1):
-        heads_only = epoch <= args.heads_only_epochs
-        if heads_only != current_heads_only:
-            set_heads_only(model, heads_only=heads_only)
-            current_heads_only = heads_only
-            stage = "rm_head_only" if heads_only else "all_parameters"
-            print(
-                f"Fine-tune stage: {stage}; trainable parameters: {count_trainable_parameters(model)}",
-                flush=True,
-            )
-
         train_metrics = run_one_epoch(model, train_loader, optimizer, device, args)
         with torch.no_grad():
             val_metrics = run_one_epoch(model, val_loader, None, device, args)
@@ -982,8 +923,6 @@ def main():
 
         row = {
             "epoch": epoch,
-            "stage": "rm_head_only" if heads_only else "all_parameters",
-            "trainable_parameters": count_trainable_parameters(model),
             "best_val_rm": best_val_rm,
             "checkpoint_saved": int(checkpoint_saved),
         }

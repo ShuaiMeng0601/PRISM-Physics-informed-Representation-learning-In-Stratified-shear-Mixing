@@ -15,6 +15,9 @@ checkpoints, logs, and exploratory result folders out of version control.
 - `src/train_shared_fno_rm_flow.py`: train the compact-latent SharedFNO model
   that keeps the old variable-wise ViT/cross-variable attention encoder style,
   adds an FNO spectral mixer, and removes explicit `Pr/Ri/Re/a` conditioning.
+- `src/finetune_shared_fno_rm_flow.py`: fine-tune a pretrained SharedFNO
+  checkpoint with the same head-only warmup schedule used by the earlier
+  fine-tuning workflow.
 - `src/inspect_shared_fno_attention.py`: visualize SharedFNO cross-variable
   attention maps and RM saliency heatmaps.
 - `src/test_multihead_epsilon_flow.py`: evaluate the model on a split or external test set.
@@ -129,7 +132,7 @@ Fine-tune from the pretrained SharedFNO checkpoint with the same schedule used
 by the earlier fine-tuning workflow:
 
 ```bash
-python src/train_shared_fno_rm_flow.py \
+python src/finetune_shared_fno_rm_flow.py \
   --h5 data/test_dataset_keep_epsilon.h5 \
   --label_csv data/test_RM_summary_table.csv \
   --init_checkpoint checkpoints/shared_fno_rm_flow_model.pt \

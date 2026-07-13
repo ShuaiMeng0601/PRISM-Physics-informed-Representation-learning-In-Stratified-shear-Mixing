@@ -127,7 +127,7 @@ batch_size = 4
 Run after pretraining has produced `checkpoints/shared_fno_rm_flow_model.pt`:
 
 ```bash
-python src/train_shared_fno_rm_flow.py \
+python src/finetune_shared_fno_rm_flow.py \
   --h5 data/test_dataset_keep_epsilon.h5 \
   --label_csv data/test_RM_summary_table.csv \
   --init_checkpoint checkpoints/shared_fno_rm_flow_model.pt \
@@ -156,7 +156,9 @@ paths, for example:
 - The flow branch only uses noisy buoyancy, flow time, and compact latent.
 - Missing variables are handled through `variable_mask` and training-time
   variable dropout.
-- The main script is `src/train_shared_fno_rm_flow.py`.
+- Pretraining/from-scratch training uses `src/train_shared_fno_rm_flow.py`.
+- Fine-tuning from a pretrained SharedFNO checkpoint uses
+  `src/finetune_shared_fno_rm_flow.py`.
 
 ## 9. Visualize cross-attention and RM saliency
 
