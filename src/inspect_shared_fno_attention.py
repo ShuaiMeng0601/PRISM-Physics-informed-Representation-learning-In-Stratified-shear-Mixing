@@ -98,6 +98,7 @@ def decompose_attention(attention, n_vars, grid_size):
 
     Returns:
         var_matrix: V x V, query variable to key variable attention mass.
+        pair_heatmaps: V x V x Hy x Wt, spatial key attention for each query/key pair.
         key_heatmaps: V x Hy x Wt, attention received by each key variable/patch.
         spatial_heatmap: Hy x Wt, key attention summed over variables.
     """
@@ -107,9 +108,10 @@ def decompose_attention(attention, n_vars, grid_size):
     attn = attn.reshape(n_vars, n_patches, n_vars, n_patches)
 
     var_matrix = attn.sum(dim=3).mean(dim=1)
+    pair_heatmaps = attn.mean(dim=1).reshape(n_vars, n_vars, grid_y, grid_t)
     key_heatmaps = attn.mean(dim=(0, 1)).reshape(n_vars, grid_y, grid_t)
     spatial_heatmap = key_heatmaps.sum(dim=0)
-    return var_matrix, key_heatmaps, spatial_heatmap
+    return var_matrix, pair_heatmaps, key_heatmaps, spatial_heatmap
 
 
 def upsample_maps(maps, size):
@@ -170,6 +172,36 @@ def plot_patch_heatmaps(key_heatmaps, spatial_heatmap, variables, output_path):
         ax.set_xlabel("patch time")
         ax.set_ylabel("patch y")
         fig.colorbar(image, ax=ax, fraction=0.046, pad=0.04)
+    fig.savefig(output_path, dpi=180)
+    plt.close(fig)
+
+
+def plot_query_key_heatmaps(pair_heatmaps, var_matrix, variables, output_path):
+    pair_maps = tensor_to_numpy(pair_heatmaps)
+    matrix = tensor_to_numpy(var_matrix)
+    n_vars = len(variables)
+    fig, axes = plt.subplots(
+        n_vars,
+        n_vars,
+        figsize=(3.3 * n_vars, 3.0 * n_vars),
+        constrained_layout=True,
+        squeeze=False,
+    )
+    for query_idx, query_name in enumerate(variables):
+        for key_idx, key_name in enumerate(variables):
+            ax = axes[query_idx, key_idx]
+            heatmap = normalize_map(pair_maps[query_idx, key_idx])
+            image = ax.imshow(heatmap, cmap="inferno", aspect="auto", vmin=0.0, vmax=1.0)
+            ax.set_title(f"{query_name} -> {key_name}\nmass={matrix[query_idx, key_idx]:.2f}")
+            if query_idx == n_vars - 1:
+                ax.set_xlabel("key patch time")
+            else:
+                ax.set_xticks([])
+            if key_idx == 0:
+                ax.set_ylabel("key patch y")
+            else:
+                ax.set_yticks([])
+            fig.colorbar(image, ax=ax, fraction=0.046, pad=0.04)
     fig.savefig(output_path, dpi=180)
     plt.close(fig)
 
@@ -246,7 +278,7 @@ def main():
         out = model(x, var_mask=var_mask, return_attention=True)
 
     attention = out["attention"]["cross_attention"][0].detach().cpu()
-    var_matrix, key_heatmaps, spatial_heatmap = decompose_attention(
+    var_matrix, pair_heatmaps, key_heatmaps, spatial_heatmap = decompose_attention(
         attention,
         n_vars=len(dataset.input_variables),
         grid_size=model.encoder.grid_size,
@@ -258,6 +290,12 @@ def main():
 
     plot_input_fields(x, dataset.input_variables, output_dir / "input_fields.png")
     plot_variable_matrix(var_matrix, dataset.input_variables, output_dir / "variable_attention_matrix.png")
+    plot_query_key_heatmaps(
+        pair_heatmaps,
+        var_matrix,
+        dataset.input_variables,
+        output_dir / "query_key_attention_heatmaps.png",
+    )
     plot_patch_heatmaps(
         key_heatmaps,
         spatial_heatmap,
@@ -276,6 +314,7 @@ def main():
     np.savez(
         output_dir / "attention_maps.npz",
         variable_attention=tensor_to_numpy(var_matrix),
+        query_key_attention_heatmaps=tensor_to_numpy(pair_heatmaps),
         key_attention_heatmaps=tensor_to_numpy(key_heatmaps),
         spatial_attention=tensor_to_numpy(spatial_heatmap),
         rm_saliency=tensor_to_numpy(saliency[0]),
@@ -296,6 +335,7 @@ def main():
         "outputs": [
             "input_fields.png",
             "variable_attention_matrix.png",
+            "query_key_attention_heatmaps.png",
             "patch_attention_heatmaps.png",
             "attention_overlays.png",
             "rm_saliency.png",

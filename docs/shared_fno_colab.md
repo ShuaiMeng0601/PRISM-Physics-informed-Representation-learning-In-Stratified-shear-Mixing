@@ -184,8 +184,11 @@ outputs/shared_fno_attention/val_sample_0000/
 Key files:
 
 - `variable_attention_matrix.png`: 3 x 3 cross-variable attention mass.
+- `query_key_attention_heatmaps.png`: full query-variable x key-variable
+  spatial attention maps; rows are the variable doing the attending, columns
+  are the variable being attended to.
 - `patch_attention_heatmaps.png`: attention received by each variable on the
-  compact `50 x 20` patch grid.
+  compact `50 x 20` patch grid after averaging over query variables.
 - `attention_overlays.png`: attention maps upsampled and overlaid on the input
   fields.
 - `rm_saliency.png`: gradient-based RM saliency on the compact latent.
