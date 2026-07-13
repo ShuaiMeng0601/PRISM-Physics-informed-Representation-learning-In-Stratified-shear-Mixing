@@ -119,3 +119,34 @@ flow velocity/reconstruction: (B,1,491,200)
 - Missing variables are handled through `variable_mask` and training-time
   variable dropout.
 - The main script is `src/train_shared_fno_rm_flow.py`.
+
+## 8. Visualize cross-attention and RM saliency
+
+After training has produced `checkpoints/shared_fno_rm_flow_model.pt`, run:
+
+```bash
+python src/inspect_shared_fno_attention.py \
+  --h5 data/kh_holmboe_dataset_keep_epsilon.h5 \
+  --label_csv data/RM_summary_table.csv \
+  --checkpoint checkpoints/shared_fno_rm_flow_model.pt \
+  --split val \
+  --sample 0 \
+  --device cuda \
+  --output_dir outputs/shared_fno_attention
+```
+
+The script writes a folder like:
+
+```text
+outputs/shared_fno_attention/val_sample_0000/
+```
+
+Key files:
+
+- `variable_attention_matrix.png`: 3 x 3 cross-variable attention mass.
+- `patch_attention_heatmaps.png`: attention received by each variable on the
+  compact `50 x 20` patch grid.
+- `attention_overlays.png`: attention maps upsampled and overlaid on the input
+  fields.
+- `rm_saliency.png`: gradient-based RM saliency on the compact latent.
+- `attention_maps.npz`: raw arrays for later plotting.

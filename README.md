@@ -15,6 +15,8 @@ checkpoints, logs, and exploratory result folders out of version control.
 - `src/train_shared_fno_rm_flow.py`: train the compact-latent SharedFNO model
   that keeps the old variable-wise ViT/cross-variable attention encoder style,
   adds an FNO spectral mixer, and removes explicit `Pr/Ri/Re/a` conditioning.
+- `src/inspect_shared_fno_attention.py`: visualize SharedFNO cross-variable
+  attention maps and RM saliency heatmaps.
 - `src/test_multihead_epsilon_flow.py`: evaluate the model on a split or external test set.
 - `src/infer_log_epsilon_flow.py`: generate log-epsilon field inference.
 - `src/inspect_multihead_epsilon_flow.py`: visualize epsilon-flow reconstructions.
@@ -125,6 +127,19 @@ python src/train_shared_fno_rm_flow.py \
 
 See `docs/shared_fno_colab.md` and `docs/shared_fno_rm_flow_pipeline.md` for
 Colab instructions and the architecture diagram.
+
+To visualize attention and RM saliency after training:
+
+```bash
+python src/inspect_shared_fno_attention.py \
+  --h5 data/kh_holmboe_dataset_keep_epsilon.h5 \
+  --label_csv data/RM_summary_table.csv \
+  --checkpoint checkpoints/shared_fno_rm_flow_model.pt \
+  --split val \
+  --sample 0 \
+  --device cuda \
+  --output_dir outputs/shared_fno_attention
+```
 
 ## External Fine-Tuning
 
