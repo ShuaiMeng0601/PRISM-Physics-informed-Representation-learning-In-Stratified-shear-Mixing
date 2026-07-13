@@ -12,6 +12,9 @@ checkpoints, logs, and exploratory result folders out of version control.
 - `src/models.py` and `src/models_scale_variable.py`: core neural network modules and supporting architectures.
 - `src/train_multihead.py`: shared multihead regression head, baseline model, and loss helpers used by the epsilon-flow workflow.
 - `src/train_multihead_epsilon_flow.py`: train and fine-tune the final model.
+- `src/train_shared_fno_rm_flow.py`: train the compact-latent SharedFNO model
+  that keeps the old variable-wise ViT/cross-variable attention encoder style,
+  adds an FNO spectral mixer, and removes explicit `Pr/Ri/Re/a` conditioning.
 - `src/test_multihead_epsilon_flow.py`: evaluate the model on a split or external test set.
 - `src/infer_log_epsilon_flow.py`: generate log-epsilon field inference.
 - `src/inspect_multihead_epsilon_flow.py`: visualize epsilon-flow reconstructions.
@@ -95,6 +98,33 @@ python src/train_multihead_epsilon_flow.py \
   --metrics_csv outputs/epsilon_flow_loss_history.csv \
   --loss_plot outputs/epsilon_flow_loss_curves.png
 ```
+
+## Compact SharedFNO Training
+
+This newer experiment keeps the old encoder style but outputs a smaller latent
+feature:
+
+```text
+input: (B,3,491,200) -> compact latent: (B,64,50,20)
+```
+
+It does not condition the flow branch on `Pr`, `Ri`, `Re`, or `a`.
+
+```bash
+python src/train_shared_fno_rm_flow.py \
+  --h5 data/kh_holmboe_dataset_keep_epsilon.h5 \
+  --label_csv data/RM_summary_table.csv \
+  --input_variables buoyancy,reduced_shear,log_epsilon \
+  --epochs 100 \
+  --batch_size 4 \
+  --device cuda \
+  --save checkpoints/shared_fno_rm_flow_model.pt \
+  --metrics_csv outputs/shared_fno_rm_flow_loss_history.csv \
+  --loss_plot outputs/shared_fno_rm_flow_loss_curves.png
+```
+
+See `docs/shared_fno_colab.md` and `docs/shared_fno_rm_flow_pipeline.md` for
+Colab instructions and the architecture diagram.
 
 ## External Fine-Tuning
 
