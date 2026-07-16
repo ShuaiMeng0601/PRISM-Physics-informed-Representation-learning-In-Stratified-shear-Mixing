@@ -18,6 +18,7 @@ Expected local files:
 
 ```text
 kh_holmboe_dataset_keep_epsilon.h5
+kh_holmboe_dataset_augmented.h5
 test_dataset_keep_epsilon.h5
 RM_summary_table.csv
 test_RM_summary_table.csv
@@ -32,3 +33,5 @@ buoyancy,reduced_shear,log_epsilon
 
 Keep the large Drive copies in `ML_turbulence/experiment/` and copy or symlink
 them into this folder when running locally.
+
+See `docs/data_generation.md` for the expanded augmented dataset build command.

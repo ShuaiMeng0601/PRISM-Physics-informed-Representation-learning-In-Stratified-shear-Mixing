@@ -17,14 +17,23 @@ The main input variables are:
 buoyancy,reduced_shear,log_epsilon
 ```
 
+The expanded 5-variable augmented dataset is generated separately with
+`scripts/build_kh_holmboe_dataset_augmented.py`. See `docs/data_generation.md`
+for the build command and the old/new dataset comparison.
+
 ## 2. Model
 
-The final model is defined in `src/models_scale_variable.py`.
+The current final training workflow is defined in
+`src/train_multihead_epsilon_flow.py` and uses the reusable modules in
+`src/models.py`.
 
 At a high level, the workflow uses a multi-variable encoder over turbulence
 fields, then combines regression/reconstruction objectives with an epsilon-flow
 branch. The final notebook workflow masks epsilon during evaluation to test
 whether the model can infer missing epsilon structure from the remaining fields.
+
+`src/models_scale_variable.py` is an experimental scale-variable architecture
+kept for reference, but it is not wired into the default training commands.
 
 ## 3. Train Main Model
 

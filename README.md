@@ -9,7 +9,8 @@ checkpoints, logs, and exploratory result folders out of version control.
 ## Included Backbone
 
 - `src/dataset.py`: HDF5 dataset loader and label parsing.
-- `src/models.py` and `src/models_scale_variable.py`: core neural network modules and supporting architectures.
+- `src/models.py`: core neural network modules used by the current epsilon-flow workflow.
+- `src/models_scale_variable.py`: experimental scale-variable architecture retained for reference.
 - `src/train_multihead.py`: shared multihead regression head, baseline model, and loss helpers used by the epsilon-flow workflow.
 - `src/train_multihead_epsilon_flow.py`: train and fine-tune the final model.
 - `src/train_shared_fno_rm_flow.py`: train the compact-latent SharedFNO model
@@ -26,6 +27,8 @@ checkpoints, logs, and exploratory result folders out of version control.
 - `src/inspect_epsilon_flow_cross_attention.py`: visualize cross-variable attention.
 - `src/visualize_flow_inputs.py`: inspect/visualize flow inputs.
 - `src/run_downsample_noise_experiments.py`: sweep test-time input noise and spatial downsampling for a trained checkpoint.
+- `scripts/build_kh_holmboe_dataset_augmented.py`: build the expanded chunked KH/Holmboe dataset.
+- `scripts/dataset_building.py`: shared dataset-building utilities used by the builder script.
 - `scripts/setup_colab_drive_links.py`: create Colab symlinks to `ML_turbulence/experiment/` in Google Drive.
 
 ## Project Layout
@@ -77,6 +80,25 @@ data/test_RM_summary_table.csv
 checkpoints/multihead_epsilon_flow_model.pt
 checkpoints/multihead_epsilon_flow_finetuned_external.pt
 ```
+
+The expanded 5-variable augmented dataset can be regenerated with:
+
+```bash
+python scripts/build_kh_holmboe_dataset_augmented.py \
+  --root /Volumes/LaCie/Pr_1_KH_Holm \
+  --out_file /Volumes/LaCie/Pr_1_KH_Holm/ml_framework/experiment/kh_holmboe_dataset_augmented.h5 \
+  --chunk_dir /Volumes/LaCie/Pr_1_KH_Holm/ml_framework/experiment/kh_holmboe_dataset_augmented_chunks \
+  --reference_gyf_file /Volumes/LaCie/Pr_1_KH_Holm/KH/KH_test/Ri016_a10_Re1000/1/mean.h5 \
+  --n_x_profiles 100 \
+  --n_z_profiles 50 \
+  --time_window_offsets 0,25,50 \
+  --augmentation_fraction 0.3 \
+  --noise_stds 0,0.01,0.03 \
+  --downsample_factors 1,2,4
+```
+
+See `docs/data_generation.md` for the old/new dataset comparison and the
+chunked build details.
 
 If your Drive folder is mounted somewhere else, pass it explicitly:
 
